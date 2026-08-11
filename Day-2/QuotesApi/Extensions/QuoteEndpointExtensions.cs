@@ -30,6 +30,7 @@ public static class QuoteEndpointExtensions
                     ["page"] = currentPage < 1
                         ? ["Page must be at least 1."]
                         : [],
+
                     ["size"] = pageSize is < 1 or > 100
                         ? ["Size must be between 1 and 100."]
                         : []
@@ -51,6 +52,7 @@ public static class QuoteEndpointExtensions
             return Results.Ok(quotes);
         });
 
+
         group.MapPost("/", async (
             CreateQuoteRequest request,
             IQuoteRepository repository,
@@ -64,45 +66,56 @@ public static class QuoteEndpointExtensions
                     request,
                     validationContext,
                     validationResults,
-                    validateAllProperties: true))
+                    true))
             {
                 var errors = validationResults
                     .GroupBy(x => x.MemberNames.FirstOrDefault() ?? string.Empty)
                     .ToDictionary(
                         x => x.Key,
-                        x => x.Select(v => v.ErrorMessage ?? "Invalid value.")
+                        x => x.Select(v =>
+                            v.ErrorMessage ?? "Invalid value.")
                             .ToArray());
 
                 return Results.ValidationProblem(errors);
             }
 
+
             Quote quote;
 
-try
-{
-    quote = Quote.Create(
-        request.Author.Trim(),
-        request.Text.Trim());
-}
-catch (ArgumentException ex)
-{
-    return Results.BadRequest(new
-    {
-        error = ex.Message
-    });
-}
+            try
+            {
+                quote = Quote.Create(
+                    request.Author.Trim(),
+                    request.Text.Trim());
+            }
+            catch (ArgumentException ex)
+            {
+                return Results.BadRequest(new
+                {
+                    error = ex.Message
+                });
+            }
+
 
             var created = await repository.AddAsync(
                 quote,
                 cancellationToken);
+
 
             logger.LogInformation(
                 "Created quote {QuoteId} by {Author}",
                 created.Id,
                 created.Author);
 
-            return Results.Created($"/api/quotes/{created.Id}", created);
-        });
+
+            return Results.Created(
+                $"/api/quotes/{created.Id}",
+                created);
+
+        })
+        .RequireAuthorization();
+
+
 
         group.MapGet("/{id:int}", async (
             int id,
@@ -110,16 +123,22 @@ catch (ArgumentException ex)
             ILogger<Program> logger,
             CancellationToken cancellationToken) =>
         {
-            logger.LogInformation("Getting quote {QuoteId}", id);
+            logger.LogInformation(
+                "Getting quote {QuoteId}",
+                id);
+
 
             var quote = await repository.GetByIdAsync(
                 id,
                 cancellationToken);
 
+
             return quote is null
                 ? Results.NotFound()
                 : Results.Ok(quote);
         });
+
+
 
         group.MapDelete("/{id:int}", async (
             int id,
@@ -127,18 +146,24 @@ catch (ArgumentException ex)
             ILogger<Program> logger,
             CancellationToken cancellationToken) =>
         {
-            logger.LogInformation("Deleting quote {QuoteId}", id);
+            logger.LogInformation(
+                "Deleting quote {QuoteId}",
+                id);
+
 
             var deleted = await repository.DeleteAsync(
                 id,
                 cancellationToken);
 
+
             return deleted
                 ? Results.NoContent()
                 : Results.NotFound();
-        });
+
+        })
+        .RequireAuthorization();
+
 
         return endpoints;
     }
 }
-

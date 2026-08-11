@@ -1,0 +1,8 @@
+using QuotesApi.Models;
+
+namespace QuotesApi.Services;
+
+public interface ITokenService
+{
+    string CreateAccessToken(User user);
+}
