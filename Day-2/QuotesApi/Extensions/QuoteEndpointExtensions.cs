@@ -76,11 +76,21 @@ public static class QuoteEndpointExtensions
                 return Results.ValidationProblem(errors);
             }
 
-            var quote = new Quote
-            {
-                Author = request.Author.Trim(),
-                Text = request.Text.Trim()
-            };
+            Quote quote;
+
+try
+{
+    quote = Quote.Create(
+        request.Author.Trim(),
+        request.Text.Trim());
+}
+catch (ArgumentException ex)
+{
+    return Results.BadRequest(new
+    {
+        error = ex.Message
+    });
+}
 
             var created = await repository.AddAsync(
                 quote,
@@ -131,3 +141,4 @@ public static class QuoteEndpointExtensions
         return endpoints;
     }
 }
+
