@@ -8,10 +8,12 @@ public class Quote
 
     private Quote(
         string author,
-        string text)
+        string text,
+        int userId)
     {
         Author = author;
         Text = text;
+        UserId = userId;
     }
 
     public int Id { get; private set; }
@@ -22,9 +24,14 @@ public class Quote
 
     public bool IsDeleted { get; private set; }
 
+    public int UserId { get; private set; }
+
+    public User User { get; private set; } = null!;
+
     public static Quote Create(
         string author,
-        string text)
+        string text,
+        int userId)
     {
         if (string.IsNullOrWhiteSpace(author) ||
             author.Length > 200)
@@ -40,7 +47,16 @@ public class Quote
                 "Text must be between 1 and 1000 characters.");
         }
 
-        return new Quote(author, text);
+        if (userId <= 0)
+        {
+            throw new ArgumentException(
+                "User ID must be valid.");
+        }
+
+        return new Quote(
+            author,
+            text,
+            userId);
     }
 
     public void SoftDelete()

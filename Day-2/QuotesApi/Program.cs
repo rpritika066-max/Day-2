@@ -1,76 +1,122 @@
+using System.Text;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
-using System.Text;
+using QuotesApi.Authorization;
 using QuotesApi.Data;
 using QuotesApi.Extensions;
-using QuotesApi.Middleware;
+using QuotesApi.Repositories;
 using QuotesApi.Services;
 
 var builder = WebApplication.CreateBuilder(args);
 
-builder.Services.AddProblemDetails();
+// ------------------------------------------------------------
+// Database
+// ------------------------------------------------------------
 
-builder.Services.AddInfrastructure(builder.Configuration);
+builder.Services.AddDbContext<QuoteDbContext>(options =>
+{
+    options.UseSqlite("Data Source=quotes.db");
+});
 
-builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
-    .AddJwtBearer(options =>
-    {
-        var key = builder.Configuration["Jwt:Key"]
-            ?? throw new InvalidOperationException(
-                "JWT key missing.");
+// ------------------------------------------------------------
+// Repositories
+// ------------------------------------------------------------
 
-        options.TokenValidationParameters = new TokenValidationParameters
-        {
-            ValidateIssuerSigningKey = true,
+builder.Services.AddScoped<IQuoteRepository, QuoteRepository>();
 
-            IssuerSigningKey = new SymmetricSecurityKey(
-                Encoding.UTF8.GetBytes(key)),
-
-            ValidateIssuer = false,
-            ValidateAudience = false,
-
-            ValidateLifetime = true,
-
-            ClockSkew = TimeSpan.Zero
-        };
-    });
-
-builder.Services.AddAuthorization();
+// ------------------------------------------------------------
+// Services
+// ------------------------------------------------------------
 
 builder.Services.AddScoped<ITokenService, TokenService>();
+builder.Services.AddSingleton<IClock, SystemClock>();
+
+// ------------------------------------------------------------
+// Authentication
+// ------------------------------------------------------------
+
+var jwtKey = builder.Configuration["Jwt:Key"]
+    ?? throw new InvalidOperationException(
+        "JWT key missing from configuration.");
+
+builder.Services
+    .AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
+    .AddJwtBearer(options =>
+    {
+        options.TokenValidationParameters =
+            new TokenValidationParameters
+            {
+                ValidateIssuer = false,
+                ValidateAudience = false,
+                ValidateLifetime = true,
+                ValidateIssuerSigningKey = true,
+
+                IssuerSigningKey =
+                    new SymmetricSecurityKey(
+                        Encoding.UTF8.GetBytes(jwtKey))
+            };
+    });
+
+// ------------------------------------------------------------
+// Authorization
+// ------------------------------------------------------------
+
+builder.Services.AddAuthorization(options =>
+{
+    // Claim-based policy.
+    //
+    // User must have:
+    // scope = quotes.write
+    options.AddPolicy(
+        "can-edit-quotes",
+        policy =>
+        {
+            policy.RequireClaim(
+                "scope",
+                "quotes.write");
+        });
+
+    // Custom policy.
+    //
+    // User must own the quote they are
+    // attempting to delete.
+    options.AddPolicy(
+        "can-delete-own-quote",
+        policy =>
+        {
+            policy.AddRequirements(
+                new OwnsQuoteRequirement());
+        });
+});
+
+// Register custom authorization handler.
+builder.Services.AddScoped<OwnsQuoteHandler>();
+
+// ------------------------------------------------------------
+// Application
+// ------------------------------------------------------------
 
 var app = builder.Build();
 
-app.UseMiddleware<ExceptionHandlingMiddleware>();
+// ------------------------------------------------------------
+// Middleware
+// ------------------------------------------------------------
 
 app.UseAuthentication();
+
 app.UseAuthorization();
-using (var scope = app.Services.CreateScope())
-{
-    var db = scope.ServiceProvider.GetRequiredService<QuoteDbContext>();
 
-    await db.Database.MigrateAsync();
+// ------------------------------------------------------------
+// Endpoints
+// ------------------------------------------------------------
 
-    if (!db.Users.Any())
-    {
-        db.Users.Add(new QuotesApi.Models.User
-        {
-            Email = "test@example.com",
-            PasswordHash = BCrypt.Net.BCrypt.HashPassword(
-                "Password123")
-        });
-
-        await db.SaveChangesAsync();
-    }
-}
-
-app.MapQuoteEndpoints();
-app.MapCollectionEndpoints();
 app.MapAuthEndpoints();
 
-app.Run();
+app.MapQuoteEndpoints();
 
-public partial class Program
-{
-}
+// ------------------------------------------------------------
+// Run
+// ------------------------------------------------------------
+
+app.Run();

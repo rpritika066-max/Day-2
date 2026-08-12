@@ -11,10 +11,19 @@ public class QuoteDbContext(DbContextOptions<QuoteDbContext> options)
     public DbSet<Collection> Collections => Set<Collection>();
 
     public DbSet<User> Users => Set<User>();
+
     public DbSet<RefreshToken> RefreshTokens => Set<RefreshToken>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
+        modelBuilder.Entity<Quote>(b =>
+        {
+            b.HasOne(q => q.User)
+                .WithMany()
+                .HasForeignKey(q => q.UserId)
+                .OnDelete(DeleteBehavior.Cascade);
+        });
+
         modelBuilder.Entity<Collection>(b =>
         {
             b.Property(c => c.Name).HasMaxLength(80);
@@ -24,7 +33,9 @@ public class QuoteDbContext(DbContextOptions<QuoteDbContext> options)
                 item.WithOwner().HasForeignKey("CollectionId");
                 item.Property(i => i.QuoteId);
                 item.Property(i => i.AddedAt);
-                item.HasKey("CollectionId", nameof(CollectionItem.QuoteId));
+                item.HasKey(
+                    "CollectionId",
+                    nameof(CollectionItem.QuoteId));
             });
         });
     }

@@ -52,11 +52,11 @@ public static class QuoteEndpointExtensions
             return Results.Ok(quotes);
         });
 
-
         group.MapPost("/", async (
             CreateQuoteRequest request,
             IQuoteRepository repository,
             ILogger<Program> logger,
+            HttpContext httpContext,
             CancellationToken cancellationToken) =>
         {
             var validationResults = new List<ValidationResult>();
@@ -69,16 +69,28 @@ public static class QuoteEndpointExtensions
                     true))
             {
                 var errors = validationResults
-                    .GroupBy(x => x.MemberNames.FirstOrDefault() ?? string.Empty)
+                    .GroupBy(x =>
+                        x.MemberNames.FirstOrDefault()
+                        ?? string.Empty)
                     .ToDictionary(
                         x => x.Key,
                         x => x.Select(v =>
-                            v.ErrorMessage ?? "Invalid value.")
+                            v.ErrorMessage
+                            ?? "Invalid value.")
                             .ToArray());
 
                 return Results.ValidationProblem(errors);
             }
 
+            var userIdClaim = httpContext.User.FindFirst(
+                    System.Security.Claims.ClaimTypes.NameIdentifier)
+                ?.Value
+                ?? httpContext.User.FindFirst("sub")?.Value;
+
+            if (!int.TryParse(userIdClaim, out var userId))
+            {
+                return Results.Unauthorized();
+            }
 
             Quote quote;
 
@@ -86,7 +98,8 @@ public static class QuoteEndpointExtensions
             {
                 quote = Quote.Create(
                     request.Author.Trim(),
-                    request.Text.Trim());
+                    request.Text.Trim(),
+                    userId);
             }
             catch (ArgumentException ex)
             {
@@ -96,26 +109,20 @@ public static class QuoteEndpointExtensions
                 });
             }
 
-
             var created = await repository.AddAsync(
                 quote,
                 cancellationToken);
-
 
             logger.LogInformation(
                 "Created quote {QuoteId} by {Author}",
                 created.Id,
                 created.Author);
 
-
             return Results.Created(
                 $"/api/quotes/{created.Id}",
                 created);
-
         })
-        .RequireAuthorization();
-
-
+        .RequireAuthorization("can-edit-quotes");
 
         group.MapGet("/{id:int}", async (
             int id,
@@ -127,18 +134,14 @@ public static class QuoteEndpointExtensions
                 "Getting quote {QuoteId}",
                 id);
 
-
             var quote = await repository.GetByIdAsync(
                 id,
                 cancellationToken);
-
 
             return quote is null
                 ? Results.NotFound()
                 : Results.Ok(quote);
         });
-
-
 
         group.MapDelete("/{id:int}", async (
             int id,
@@ -150,19 +153,15 @@ public static class QuoteEndpointExtensions
                 "Deleting quote {QuoteId}",
                 id);
 
-
             var deleted = await repository.DeleteAsync(
                 id,
                 cancellationToken);
 
-
             return deleted
                 ? Results.NoContent()
                 : Results.NotFound();
-
         })
-        .RequireAuthorization();
-
+        .RequireAuthorization("can-delete-own-quote");
 
         return endpoints;
     }
